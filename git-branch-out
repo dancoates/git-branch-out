@@ -10,10 +10,35 @@ die () {
     exit 
 }
 
+containsElement () {
+  local e
+  for e in "${@:2}"; do [[ "$e" == "$1" ]] && return 0; done
+  return 1
+}
+
 #Vars
 mode=
 dir=
 url=
+script=
+
+# Check for build flag
+while getopts "b:" OPTION
+do
+    case $OPTION in
+    b)
+        script="$OPTARG"
+        echo "Build Flag set"
+    ;;
+    [?])
+        echo "Build flag not set"
+        exit 1
+    ;;
+    
+    esac
+done
+shift $(($OPTIND-1))
+
 
 # Check the type of argument passed
 if [ $# -eq 2 ]
@@ -43,22 +68,22 @@ elif [ $# -eq 1 ]
     fi
 elif [ $# -eq 0 ]
     then
-    status=`git status 2>/dev/null`
-    if [ "$status" =~ "fatal" ]
+    if [ -d .git ]
     then
-        echo "Not a git repository"
-        dir="repo"
-    else
         mode=update
         dir="."
         echo "Currently in git directory"
+    else
+        echo "Not a git repository"
+        mode=update
+        dir="repo"
     fi
 else
     usage
 fi
 
-
 ## Git New Workdir Script
+## https://github.com/git/git/blob/master/contrib/workdir/git-new-workdir
 
 git_new_workdir() {
     orig_git=$1
@@ -128,35 +153,121 @@ git_new_workdir() {
     git checkout -f $branch
 }
 
+ff_update() {
+  REMOTES="$@";
+  if [ -z "$REMOTES" ]; then
+    REMOTES=$(git remote);
+  fi
+  REMOTES=$(echo "$REMOTES" | xargs -n1 echo)
+  CLB=$(git branch -l|awk '/^\*/{print $2}');
+  echo "$REMOTES" | while read REMOTE; do
+    git remote update $REMOTE
+    git remote show $REMOTE -n \
+    | awk '/merges with remote/{print $5" "$1}' \
+    | while read line; do
+      RB=$(echo "$line"|cut -f1 -d" ");
+      ARB="refs/remotes/$REMOTE/$RB";
+      LB=$(echo "$line"|cut -f2 -d" ");
+      ALB="refs/heads/$LB";
+      NBEHIND=$(( $(git rev-list --count $ALB..$ARB 2>/dev/null) +0));
+      NAHEAD=$(( $(git rev-list --count $ARB..$ALB 2>/dev/null) +0));
+      if [ "$NBEHIND" -gt 0 ]; then
+        if [ "$NAHEAD" -gt 0 ]; then
+          echo " branch $LB is $NBEHIND commit(s) behind and $NAHEAD commit(s) ahead of $REMOTE/$RB. could not be fast-forwarded";
+        elif [ "$LB" = "$CLB" ]; then
+          echo " branch $LB was $NBEHIND commit(s) behind of $REMOTE/$RB. fast-forward merge";
+          git merge -q $ARB;
+        else
+          echo " branch $LB was $NBEHIND commit(s) behind of $REMOTE/$RB. resetting local branch to remote";
+          git branch -l -f $LB -t $ARB >/dev/null;
+        fi
+      fi
+    done
+  done
+}
 
 
 
 
 mkdir -p $dir;
 cd $dir;
-pwd;
-
 if [ $mode = initial ]
     then
+    echo "Inital Setup Mode"
     git clone --no-checkout  --no-single-branch --depth 1 $url repo;
     cd repo;
+    dir=$(pwd)
+    echo "Fanning out branches"
+    echo "Updating"
+    git fetch
+    git for-each-ref --shell refs/remotes/origin/ --format="branch=%(refname:short)" | \
+    while read entry
+    do
+        cd $dir
+        eval "$entry"
+        shortbranch=${branch/origin\//}
+        if [ "$shortbranch" != "HEAD" ]
+            then
+            echo "Fanning branch $shortbranch"
+            git_new_workdir . ../$shortbranch $shortbranch
+            echo "Running Build Script"
+            eval $script
+        fi
+    done
+elif [ $mode = update ]
+    then
+    echo "Update Mode"
+    if [ ! -d .git ]
+    then
+        cd repo
+    fi
+    dir=$(pwd)
+    echo "Updating"
+    git fetch
+    ff_update
+
+    to_prune="`git remote prune origin --dry-run 2>/dev/null`"
+    prune="`echo $to_prune | grep -o "\[would prune\].*"` *"
+
+    git for-each-ref --shell refs/remotes/origin/ --format="branch=%(refname:short)" | \
+    while read entry
+    do
+        cd $dir
+        eval "$entry"
+        shortbranch=${branch/origin\//}
+        if [ "$shortbranch" != "HEAD" ]
+            then
+            if [ ! -d ../$shortbranch ]
+                then
+                echo "Adding new branch $shortbranch"
+                git_new_workdir . ../$shortbranch $shortbranch
+                echo "Running Build Script"
+                eval $script
+            else
+                if [[ "$prune" =~ "/$shortbranch *" ]]
+                    then
+                    echo "Deleting branch: $shortbranch"
+                    git branch -D $shortbranch
+                    rm -r ../$shortbranch
+                    echo "$shortbranch will be pruned from remotes as well..."
+                else
+                    echo "Updating branch $shortbranch"
+                    cd ../$shortbranch
+                    git reset --hard
+                    echo "Running Build Script"
+                    eval $script
+                fi
+            fi
+        fi
+    done
+    git remote prune origin
+
 fi
 
 
-dir=$(pwd)
-echo "Fanning out branches"
-echo "Updating"
-git fetch
-git for-each-ref --shell refs/remotes/origin/ --format="branch=%(refname:short)" | \
-while read entry
-do
-    cd $dir
-    eval "$entry"
-    shortbranch=${branch/origin\//}
-    echo "Fanning branch $shortbranch"
-    git_new_workdir . ../$shortbranch $shortbranch
 
-done
+
+
 
 
 
