@@ -1,7 +1,19 @@
 #!/bin/bash
+
+printf "\n"
+
 ## Display usage information
 usage () {
-    echo "usage:" $@
+    printf "# USAGE\n"
+    printf "(square brackets means optional)\n"
+    printf "\n** Inital setup mode **\n"
+    echo 'git-branch-out [-b "buildscript"] <repo url> [<folder>]'
+    printf "\n"
+    echo "-OR-"
+    printf "\n** Update mode **\n"
+    echo 'git-branch-out [-b "buildscript"] [<repo folder>] [<folder>]'
+    printf "\n"
+
     exit
 }
 
@@ -28,10 +40,8 @@ do
     case $OPTION in
     b)
         script="$OPTARG"
-        echo "Build Flag set"
     ;;
     [?])
-        echo "Build flag not set"
         exit 1
     ;;
     
@@ -45,26 +55,22 @@ if [ $# -eq 2 ]
     then
     if [[ "$1" =~ "://" || "$1" =~ "git@" ]]
     then
-        echo "Param is a URL and a path has been passed"
         url=$1
         mode=initial
         dir=$2
     else
         usage
-        echo "Incorrect params"
     fi
 elif [ $# -eq 1 ]
     then
     if [[ "$1" =~ "://" || "$1" =~ "git@" ]]
     then
-        echo "Param is a URL"
         mode=initial
         url=$1
         dir="."
     else
         mode=update
         dir=$1
-        echo "Param is a path"
     fi
 elif [ $# -eq 0 ]
     then
@@ -72,11 +78,9 @@ elif [ $# -eq 0 ]
     then
         mode=update
         dir="."
-        echo "Currently in git directory"
     else
-        echo "Not a git repository"
         mode=update
-        dir="repo"
+        dir=".repo"
     fi
 else
     usage
@@ -153,52 +157,19 @@ git_new_workdir() {
     git checkout -f $branch
 }
 
-ff_update() {
-  REMOTES="$@";
-  if [ -z "$REMOTES" ]; then
-    REMOTES=$(git remote);
-  fi
-  REMOTES=$(echo "$REMOTES" | xargs -n1 echo)
-  CLB=$(git branch -l|awk '/^\*/{print $2}');
-  echo "$REMOTES" | while read REMOTE; do
-    git remote update $REMOTE
-    git remote show $REMOTE -n \
-    | awk '/merges with remote/{print $5" "$1}' \
-    | while read line; do
-      RB=$(echo "$line"|cut -f1 -d" ");
-      ARB="refs/remotes/$REMOTE/$RB";
-      LB=$(echo "$line"|cut -f2 -d" ");
-      ALB="refs/heads/$LB";
-      NBEHIND=$(( $(git rev-list --count $ALB..$ARB 2>/dev/null) +0));
-      NAHEAD=$(( $(git rev-list --count $ARB..$ALB 2>/dev/null) +0));
-      if [ "$NBEHIND" -gt 0 ]; then
-        if [ "$NAHEAD" -gt 0 ]; then
-          echo " branch $LB is $NBEHIND commit(s) behind and $NAHEAD commit(s) ahead of $REMOTE/$RB. could not be fast-forwarded";
-        elif [ "$LB" = "$CLB" ]; then
-          echo " branch $LB was $NBEHIND commit(s) behind of $REMOTE/$RB. fast-forward merge";
-          git merge -q $ARB;
-        else
-          echo " branch $LB was $NBEHIND commit(s) behind of $REMOTE/$RB. resetting local branch to remote";
-          git branch -l -f $LB -t $ARB >/dev/null;
-        fi
-      fi
-    done
-  done
-}
-
-
-
 
 mkdir -p $dir;
 cd $dir;
 if [ $mode = initial ]
     then
-    echo "Inital Setup Mode"
-    git clone --no-checkout  --no-single-branch --depth 1 $url repo;
-    cd repo;
+    printf "####################\n"
+    printf "# Inital Setup Mode\n"
+    printf "#################### \n \n"
+    git clone --no-checkout  --no-single-branch --depth 1 $url .repo;
+    cd .repo;
     dir=$(pwd)
-    echo "Fanning out branches"
-    echo "Updating"
+    printf "** Fanning out branches **\n"
+    printf "** Fetching latest changes **\n\n"
     git fetch
     git for-each-ref --shell refs/remotes/origin/ --format="branch=%(refname:short)" | \
     while read entry
@@ -210,22 +181,26 @@ if [ $mode = initial ]
             then
             echo "Fanning branch $shortbranch"
             git_new_workdir . ../$shortbranch $shortbranch
-            echo "Running Build Script"
-            eval $script
+            if [ ! -z $script ]
+                then
+                echo "Running Build Script"
+                eval $script
+            fi
+            printf "\n"
         fi
     done
 elif [ $mode = update ]
     then
-    echo "Update Mode"
+    printf "#################\n"
+    printf "# Update Mode\n"
+    printf "#################\n \n"
     if [ ! -d .git ]
     then
-        cd repo
+        cd .repo
     fi
     dir=$(pwd)
-    echo "Updating"
-    git fetch
-    ff_update
-
+    printf "** Fetching latest changes **\n\n"
+    git fetch --all
     to_prune="`git remote prune origin --dry-run 2>/dev/null`"
     prune="`echo $to_prune | grep -o "\[would prune\].*"` *"
 
@@ -241,8 +216,11 @@ elif [ $mode = update ]
                 then
                 echo "Adding new branch $shortbranch"
                 git_new_workdir . ../$shortbranch $shortbranch
-                echo "Running Build Script"
-                eval $script
+                if [ ! -z $script ]
+                    then
+                    echo "Running Build Script"
+                    eval $script
+                fi
             else
                 if [[ "$prune" =~ "/$shortbranch *" ]]
                     then
@@ -253,11 +231,16 @@ elif [ $mode = update ]
                 else
                     echo "Updating branch $shortbranch"
                     cd ../$shortbranch
-                    git reset --hard
-                    echo "Running Build Script"
-                    eval $script
+                    merge_result=$(git merge -s recursive -X theirs origin/$shortbranch)
+                    echo -e "$merge_result"
+                    if [[ ! -z $script && "$merge_result" != "Already up-to-date." ]]
+                        then
+                        echo "Running Build Script"
+                        eval $script
+                    fi
                 fi
             fi
+            printf "\n"
         fi
     done
     git remote prune origin
