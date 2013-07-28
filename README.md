@@ -16,6 +16,8 @@ Ideally it would be set up with wildcard DNS and something like Apache VirtualDo
 
 ## Usage
 
+Move the script somewhere in your PATH and make it executable with `chmod +x git-branch-out`
+
 There are two different modes that this script can run in.
 
 ### Inital Setup Mode
