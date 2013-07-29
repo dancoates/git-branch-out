@@ -14,6 +14,9 @@ Ideally it would be set up with wildcard DNS and something like Apache VirtualDo
 	    VirtualDocumentRoot /path/to/repository/%1/
 	</VirtualHost>
 
+At the core of this script is the git-new-workdir script, from the contrib folder in the git repo.
+https://github.com/git/git/blob/master/contrib/workdir/git-new-workdir
+
 ## Usage
 
 Move the script somewhere in your PATH and make it executable with `chmod +x git-branch-out`
@@ -53,9 +56,14 @@ In the same way as the inital setup you can pass a build script with the `-b` fl
 
 	git-branch-out -b "buildscript"
 
+#### The Queue
+
+It is important that a second instance of the update command does not run if one is already running. So when the update script runs it creates a queue file and any further calls to the script will wait patiently in the queue file until it is their turn to run.
 
 ## Notes
 
 It is very important that any files or folders that will be created or changed by the server are included in your .gitignore, this script will overwrite any local changes with whatever is coming from the remote.
+
+This script makes several calls to the git remote, so it is probably best to use the SSH protocol so you aren't having to enter your password constantly.
 
 
