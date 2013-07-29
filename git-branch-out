@@ -22,29 +22,38 @@ die () {
     exit 
 }
 
-containsElement () {
-  local e
-  for e in "${@:2}"; do [[ "$e" == "$1" ]] && return 0; done
-  return 1
-}
-
 #Vars
+initdir=$(pwd)
 mode=
 dir=
 url=
 script=
+cmd=
+queueflag=
 
-# Check for build flag
-while getopts "b:" OPTION
+
+## Get the exact command that was passed so it can be queued if needed
+for var in "$@"
+do
+    if [[ $var =~ " " ]]
+        then
+        var=\"$var\"
+    fi
+    cmd="$cmd $var"
+done
+cmd="$0 -q $cmd"
+
+
+# Check for queue and build flags flag
+while getopts "qb:" OPTION
 do
     case $OPTION in
+    q)
+        queueflag=1
+    ;;
     b)
         script="$OPTARG"
-    ;;
-    [?])
-        exit 1
-    ;;
-    
+    ;;    
     esac
 done
 shift $(($OPTIND-1))
@@ -199,6 +208,17 @@ elif [ $mode = update ]
         cd .repo
     fi
     dir=$(pwd)
+
+    ## Check if already running and if so, add to queue and exit
+    if [[ -f ../.queue && -z $queueflag ]]
+        then
+        echo "Already running - Adding to queue and exiting"
+        echo "cd $initdir && $cmd" >> ../.queue
+        exit
+    fi
+
+    touch ../.queue
+
     printf "** Fetching latest changes **\n\n"
     git fetch --all
     to_prune="`git remote prune origin --dry-run 2>/dev/null`"
@@ -245,6 +265,21 @@ elif [ $mode = update ]
     done
     git remote prune origin
 
+    cd $dir
+
+    ## Check to see if anything has been added to the queue
+    ## If so, run the script in the queue
+    ## If not, delete the queue file
+    queue=$(head -n 1 ../.queue)
+    if [[ ! -z $queue ]]
+        then
+        sed -i -e "1d" ../.queue
+        echo "Running next in queue"
+        eval $queue
+    else
+        echo "Last in line, removing queue file"
+        rm ../.queue
+    fi
 fi
 
 
