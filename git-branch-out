@@ -174,7 +174,7 @@ if [ $mode = initial ]
     printf "####################\n"
     printf "# Inital Setup Mode\n"
     printf "#################### \n \n"
-    git clone --no-checkout  --no-single-branch --depth 1 $url .repo;
+    git clone --no-checkout $url .repo;
     cd .repo;
     dir=$(pwd)
     printf "** Fanning out branches **\n"
