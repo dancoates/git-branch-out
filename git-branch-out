@@ -251,6 +251,7 @@ elif [ $mode = update ]
                 else
                     echo "Updating branch $shortbranch"
                     cd ../$shortbranch
+                    git clean -fd
                     merge_result=$(git merge -s recursive -X theirs origin/$shortbranch)
                     echo -e "$merge_result"
                     if [[ ! -z $script && "$merge_result" != "Already up-to-date." ]]
